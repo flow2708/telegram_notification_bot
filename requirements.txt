@@ -1,2 +1,2 @@
-python-telegram-bot==22.7
+python-telegram-bot==13.15
 apscheduler==3.10.4

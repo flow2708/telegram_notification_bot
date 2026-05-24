@@ -10,10 +10,8 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageH
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# ============ КОНФИГУРАЦИЯ ============
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 CHANNEL_ID = os.getenv('TELEGRAM_CHAT_ID')
-# =====================================
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -22,17 +20,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 if not TOKEN or not CHANNEL_ID:
-    logger.error("Ошибка: переменные TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID не заданы!")
+    logger.error("Ошибка: переменные не заданы!")
     os._exit(1)
 
 SETTINGS_FILE = 'bot_settings.json'
 
 DEFAULT_SETTINGS = {
     "messages": [],
-    "hourly_enabled": False,
+    "hourly_enabled": True,
     "hourly_start": 9,
     "hourly_end": 21,
-    "hourly_default_text": "⏰ ЕЖЕЧАСНОЕ НАПОМИНАНИЕ!\n\n",
+    "hourly_default_text": "⏰ ЕЖЕЧАСНОЕ НАПОМИНАНИЕ!\n\nНе забывай о важном!",
     "hourly_exceptions": []
 }
 
@@ -46,7 +44,6 @@ def save_settings(settings):
     with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
         json.dump(settings, f, ensure_ascii=False, indent=2)
 
-# Глобальные переменные
 bot = None
 scheduler = None
 settings = load_settings()
@@ -57,7 +54,7 @@ def send_message(text):
         bot.send_message(chat_id=CHANNEL_ID, text=text)
         logger.info(f"✅ Отправлено в {datetime.now().strftime('%H:%M')}")
     except Exception as e:
-        logger.error(f"❌ Ошибка: {e}")
+        logger.error(f"❌ Ошибка отправки: {e}")
 
 def setup_scheduler():
     global scheduler, settings
@@ -95,20 +92,19 @@ def setup_scheduler():
                 id=f"hourly_{h}"
             )
             jobs += 1
-            logger.info(f"✅ Запланировано почасовое: {h}:00")
     
     if jobs > 0:
         scheduler.start()
-        logger.info(f"Планировщик запущен. Всего задач: {jobs}")
+        logger.info(f"✅ Планировщик запущен. Задач: {jobs}")
 
 def get_main_keyboard():
     return [
         [InlineKeyboardButton("📊 СТАТУС", callback_data="status")],
         [InlineKeyboardButton("➕ ДОБАВИТЬ СООБЩЕНИЕ", callback_data="add")],
         [InlineKeyboardButton("📋 МОИ СООБЩЕНИЯ", callback_data="list")],
-        [InlineKeyboardButton("⏰ ПОЧАСОВАЯ РАССЫЛКА", callback_data="hourly")],
-        [InlineKeyboardButton("🧪 ТЕСТ КАНАЛА", callback_data="test")],
-        [InlineKeyboardButton("🗑 УДАЛИТЬ ВСЁ", callback_data="clear")]
+        [InlineKeyboardButton("⏰ ПОЧАСОВАЯ", callback_data="hourly")],
+        [InlineKeyboardButton("🧪 ТЕСТ", callback_data="test")],
+        [InlineKeyboardButton("🗑 ОЧИСТИТЬ", callback_data="clear")]
     ]
 
 def start(update, context):
@@ -116,7 +112,7 @@ def start(update, context):
     hourly_status = "ВКЛ" if settings.get("hourly_enabled", False) else "ВЫКЛ"
     
     text = f"🤖 *БОТ ДЛЯ КАНАЛА*\n\n"
-    text += f"📨 Обычных: *{msgs_count}*\n"
+    text += f"📨 Сообщений: *{msgs_count}*\n"
     text += f"⏰ Почасовой: *{hourly_status}*\n"
     text += f"📢 Канал: `{CHANNEL_ID}`\n\n"
     text += "⚡ *ИНСТРУКЦИЯ:*\n"
@@ -129,7 +125,10 @@ def start(update, context):
 
 def status_callback(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     msgs = settings.get("messages", [])
     hourly_enabled = settings.get("hourly_enabled", False)
@@ -154,24 +153,38 @@ def status_callback(update, context):
                 text += f"• *{exc['hour']}:00* → {exc['text'][:40]}\n"
     
     keyboard = [[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]]
-    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    try:
+        query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    except:
+        update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 def add_start(update, context):
     query = update.callback_query
-    query.answer()
-    query.edit_message_text(
-        "✏️ *ДОБАВЛЕНИЕ СООБЩЕНИЯ*\n\n"
-        "⚡ Введи ВРЕМЯ в формате *ЧЧ:ММ*\n"
-        "Пример: `14:30` или `09:00`\n\n"
-        "Часы: 00-23, минуты: 00-59",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]]),
-        parse_mode='Markdown'
-    )
+    try:
+        query.answer()
+    except:
+        pass
+    
+    try:
+        query.edit_message_text(
+            "✏️ *ДОБАВЛЕНИЕ СООБЩЕНИЯ*\n\n"
+            "⚡ Введи ВРЕМЯ в формате *ЧЧ:ММ*\n"
+            "Пример: `14:30` или `09:00`\n\n"
+            "Часы: 00-23, минуты: 00-59",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]]),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+    
     context.user_data['step'] = 'waiting_time'
 
 def hourly_menu(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     hourly_enabled = settings.get("hourly_enabled", False)
     
@@ -190,64 +203,99 @@ def hourly_menu(update, context):
         text += f"Интервал: *{settings['hourly_start']}:00 - {settings['hourly_end']}:00*\n"
         text += f"Особых часов: *{len(settings.get('hourly_exceptions', []))}*\n"
     
-    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    try:
+        query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    except:
+        pass
 
 def toggle_hourly(update, context):
     global settings
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     settings["hourly_enabled"] = not settings.get("hourly_enabled", False)
     save_settings(settings)
     setup_scheduler()
     
-    status = "ВКЛЮЧЕН" if settings["hourly_enabled"] else "ВЫКЛЮЧЕН"
-    query.edit_message_text(f"✅ ПОЧАСОВАЯ РАССЫЛКА {status}!")
+    try:
+        query.edit_message_text(f"✅ Почасовая {'ВКЛЮЧЕНА' if settings['hourly_enabled'] else 'ВЫКЛЮЧЕНА'}")
+    except:
+        pass
+    
     time.sleep(1)
     hourly_menu(update, context)
 
 def set_interval(update, context):
     query = update.callback_query
-    query.answer()
-    query.edit_message_text(
-        "⏰ *НАСТРОЙКА ИНТЕРВАЛА*\n\n"
-        "Введи начальный и конечный час\n"
-        "Пример: `9 21` (с 9 до 21 часа)\n\n"
-        "Часы от 0 до 23",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly_menu")]]),
-        parse_mode='Markdown'
-    )
+    try:
+        query.answer()
+    except:
+        pass
+    
+    try:
+        query.edit_message_text(
+            "⏰ *НАСТРОЙКА ИНТЕРВАЛА*\n\n"
+            "Введи начальный и конечный час\n"
+            "Пример: `9 21`\n\n"
+            "Часы от 0 до 23",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly_menu")]]),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+    
     context.user_data['step'] = 'waiting_interval'
 
 def set_default_text(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     current = settings.get("hourly_default_text", "")
-    query.edit_message_text(
-        f"📝 *ТЕКСТ ПО УМОЛЧАНИЮ*\n\n"
-        f"Текущий текст:\n{current}\n\n"
-        f"Введи новый текст:",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly_menu")]]),
-        parse_mode='Markdown'
-    )
+    try:
+        query.edit_message_text(
+            f"📝 *ТЕКСТ ПО УМОЛЧАНИЮ*\n\n"
+            f"Текущий текст:\n{current}\n\n"
+            f"Введи новый текст:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly_menu")]]),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+    
     context.user_data['step'] = 'waiting_default_text'
 
 def add_exception(update, context):
     query = update.callback_query
-    query.answer()
-    query.edit_message_text(
-        "🌟 *ДОБАВЛЕНИЕ ОСОБОГО ЧАСА*\n\n"
-        "Введи ЧАС (0-23)\n"
-        "Пример: `12` для 12:00",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly_menu")]]),
-        parse_mode='Markdown'
-    )
+    try:
+        query.answer()
+    except:
+        pass
+    
+    try:
+        query.edit_message_text(
+            "🌟 *ДОБАВЛЕНИЕ ОСОБОГО ЧАСА*\n\n"
+            "Введи ЧАС (0-23)\n"
+            "Пример: `12` для 12:00",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly_menu")]]),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+    
     context.user_data['step'] = 'waiting_exception_hour'
 
 def list_exceptions(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     exceptions = settings.get("hourly_exceptions", [])
     
@@ -262,25 +310,38 @@ def list_exceptions(update, context):
             keyboard.append([InlineKeyboardButton(f"🗑 Удалить {exc['hour']}:00", callback_data=f"del_exc_{exc['hour']}")])
         keyboard.append([InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly_menu")])
     
-    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    try:
+        query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    except:
+        pass
 
 def delete_exception(update, context):
     global settings
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     hour = int(query.data.split('_')[2])
     settings["hourly_exceptions"] = [e for e in settings.get("hourly_exceptions", []) if e["hour"] != hour]
     save_settings(settings)
     setup_scheduler()
     
-    query.edit_message_text(f"✅ Исключение для {hour}:00 удалено!")
+    try:
+        query.edit_message_text(f"✅ Исключение для {hour}:00 удалено!")
+    except:
+        pass
+    
     time.sleep(0.8)
     list_exceptions(update, context)
 
 def list_messages(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     msgs = settings.get("messages", [])
     
@@ -298,18 +359,27 @@ def list_messages(update, context):
             ])
         keyboard.append([InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")])
     
-    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    try:
+        query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    except:
+        pass
 
 def edit_message(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     msg_id = int(query.data.split('_')[1])
     context.user_data['edit_id'] = msg_id
     
     msg = next((m for m in settings.get("messages", []) if m["id"] == msg_id), None)
     if not msg:
-        query.edit_message_text("❌ Сообщение не найдено")
+        try:
+            query.edit_message_text("❌ Сообщение не найдено")
+        except:
+            pass
         return
     
     keyboard = [
@@ -318,51 +388,73 @@ def edit_message(update, context):
         [InlineKeyboardButton("🔙 НАЗАД", callback_data="list")]
     ]
     
-    query.edit_message_text(
-        f"*✏️ РЕДАКТИРОВАНИЕ*\n\n🕐 *{msg['time']}*\n📝 `{msg['text'][:100]}`",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    try:
+        query.edit_message_text(
+            f"*✏️ РЕДАКТИРОВАНИЕ*\n\n🕐 *{msg['time']}*\n📝 `{msg['text'][:100]}`",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
 
 def edit_text_prompt(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     msg_id = int(query.data.split('_')[2])
     context.user_data['edit_id'] = msg_id
     context.user_data['step'] = 'waiting_new_text'
     
-    query.edit_message_text(
-        "✏️ *ВВЕДИ НОВЫЙ ТЕКСТ*",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="list")]]),
-        parse_mode='Markdown'
-    )
+    try:
+        query.edit_message_text(
+            "✏️ *ВВЕДИ НОВЫЙ ТЕКСТ*",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="list")]]),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
 
 def edit_time_prompt(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     msg_id = int(query.data.split('_')[2])
     context.user_data['edit_id'] = msg_id
     context.user_data['step'] = 'waiting_new_time'
     
-    query.edit_message_text(
-        "🕐 *ВВЕДИ НОВОЕ ВРЕМЯ* (ЧЧ:ММ)\nПример: 15:30",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="list")]]),
-        parse_mode='Markdown'
-    )
+    try:
+        query.edit_message_text(
+            "🕐 *ВВЕДИ НОВОЕ ВРЕМЯ* (ЧЧ:ММ)\nПример: 15:30",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="list")]]),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
 
 def delete_message(update, context):
     global settings
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     msg_id = int(query.data.split('_')[1])
     settings["messages"] = [m for m in settings.get("messages", []) if m["id"] != msg_id]
     save_settings(settings)
     setup_scheduler()
     
-    query.edit_message_text("✅ СООБЩЕНИЕ УДАЛЕНО!")
+    try:
+        query.edit_message_text("✅ СООБЩЕНИЕ УДАЛЕНО!")
+    except:
+        pass
+    
     time.sleep(0.8)
     list_messages(update, context)
 
@@ -370,54 +462,81 @@ def test_callback(update, context):
     query = update.callback_query
     try:
         context.bot.send_message(chat_id=CHANNEL_ID, text="🧪 ТЕСТ! Бот работает!")
-        query.answer("✅ Отправлено в канал!")
+        try:
+            query.answer("✅ Отправлено в канал!")
+        except:
+            pass
+        logger.info("✅ Тест отправлен")
     except Exception as e:
         error_msg = str(e)
-        if "chat not found" in error_msg.lower():
-            query.answer("❌ Канал не найден! Проверь CHAT_ID")
-        elif "forbidden" in error_msg.lower():
-            query.answer("❌ Нет прав! Добавь бота в канал как АДМИНА")
-        else:
-            query.answer(f"❌ {error_msg[:30]}")
+        try:
+            if "chat not found" in error_msg.lower():
+                query.answer("❌ Канал не найден!")
+            elif "forbidden" in error_msg.lower():
+                query.answer("❌ Нет прав! Добавь бота в канал как АДМИНА")
+            else:
+                query.answer(f"❌ {error_msg[:30]}")
+        except:
+            pass
+        logger.error(f"❌ Тест не удался: {error_msg}")
 
 def clear_callback(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     keyboard = [
         [InlineKeyboardButton("✅ ДА", callback_data="confirm_clear")],
         [InlineKeyboardButton("❌ НЕТ", callback_data="menu")]
     ]
     
-    query.edit_message_text(
-        "⚠️ *УДАЛИТЬ ВСЕ СООБЩЕНИЯ?*\nЭто нельзя отменить!",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    try:
+        query.edit_message_text(
+            "⚠️ *УДАЛИТЬ ВСЕ СООБЩЕНИЯ?*\nЭто нельзя отменить!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except:
+        pass
 
 def confirm_clear(update, context):
     global settings
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     settings = DEFAULT_SETTINGS.copy()
     save_settings(settings)
     setup_scheduler()
     
-    query.edit_message_text("✅ ВСЕ УДАЛЕНО!")
+    try:
+        query.edit_message_text("✅ ВСЕ УДАЛЕНО!")
+    except:
+        pass
+    
     time.sleep(0.8)
     menu_callback(update, context)
 
 def menu_callback(update, context):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except:
+        pass
     
     msgs_count = len(settings.get("messages", []))
     hourly_status = "ВКЛ" if settings.get("hourly_enabled", False) else "ВЫКЛ"
     
-    text = f"🤖 *ГЛАВНОЕ МЕНЮ*\n\n📨 Обычных: {msgs_count}\n⏰ Почасовой: {hourly_status}\n📢 Канал: `{CHANNEL_ID}`"
+    text = f"🤖 *ГЛАВНОЕ МЕНЮ*\n\n📨 Сообщений: {msgs_count}\n⏰ Почасовой: {hourly_status}\n📢 Канал: `{CHANNEL_ID}`"
     
-    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(get_main_keyboard()), parse_mode='Markdown')
+    try:
+        query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(get_main_keyboard()), parse_mode='Markdown')
+    except:
+        update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(get_main_keyboard()), parse_mode='Markdown')
 
 def handle_text(update, context):
     text = update.message.text.strip()
@@ -452,9 +571,6 @@ def handle_text(update, context):
         
         update.message.reply_text(f"✅ ДОБАВЛЕНО!\n\n🕐 {time_str}\n📝 {text[:100]}")
         context.user_data['step'] = None
-        
-        keyboard = [[InlineKeyboardButton("🔙 В МЕНЮ", callback_data="menu")]]
-        update.message.reply_text("Нажми кнопку:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
     if step == 'waiting_interval':
@@ -467,12 +583,8 @@ def handle_text(update, context):
                 settings["hourly_end"] = end_hour
                 save_settings(settings)
                 setup_scheduler()
-                
                 update.message.reply_text(f"✅ Интервал: {start_hour}:00 - {end_hour}:00")
                 context.user_data['step'] = None
-                
-                keyboard = [[InlineKeyboardButton("🔙 К ПОЧАСОВОЙ", callback_data="hourly_menu")]]
-                update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 update.message.reply_text("❌ Ошибка")
         except:
@@ -483,12 +595,8 @@ def handle_text(update, context):
         settings["hourly_default_text"] = text
         save_settings(settings)
         setup_scheduler()
-        
         update.message.reply_text(f"✅ Текст сохранен!")
         context.user_data['step'] = None
-        
-        keyboard = [[InlineKeyboardButton("🔙 К ПОЧАСОВОЙ", callback_data="hourly_menu")]]
-        update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
     if step == 'waiting_exception_hour':
@@ -512,12 +620,8 @@ def handle_text(update, context):
         settings["hourly_exceptions"] = exceptions
         save_settings(settings)
         setup_scheduler()
-        
         update.message.reply_text(f"✅ Особый час {hour}:00 ДОБАВЛЕН!")
         context.user_data['step'] = None
-        
-        keyboard = [[InlineKeyboardButton("🔙 К ПОЧАСОВОЙ", callback_data="hourly_menu")]]
-        update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
     if step == 'waiting_new_text':
@@ -528,12 +632,8 @@ def handle_text(update, context):
                 break
         save_settings(settings)
         setup_scheduler()
-        
         update.message.reply_text("✅ ТЕКСТ ОБНОВЛЕН!")
         context.user_data['step'] = None
-        
-        keyboard = [[InlineKeyboardButton("🔙 К СПИСКУ", callback_data="list")]]
-        update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
     if step == 'waiting_new_time':
@@ -542,20 +642,14 @@ def handle_text(update, context):
             if 0 <= hour <= 23 and 0 <= minute <= 59:
                 new_time = f"{hour:02d}:{minute:02d}"
                 msg_id = context.user_data.get('edit_id')
-                
                 for msg in settings.get("messages", []):
                     if msg["id"] == msg_id:
                         msg["time"] = new_time
                         break
-                
                 save_settings(settings)
                 setup_scheduler()
-                
                 update.message.reply_text(f"✅ ВРЕМЯ ИЗМЕНЕНО НА {new_time}")
                 context.user_data['step'] = None
-                
-                keyboard = [[InlineKeyboardButton("🔙 К СПИСКУ", callback_data="list")]]
-                update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 update.message.reply_text("❌ Час 0-23, минуты 0-59")
         except:
@@ -565,34 +659,26 @@ def handle_text(update, context):
 def callback_handler(update, context):
     data = update.callback_query.data
     
-    if data == "menu":
-        menu_callback(update, context)
-    elif data == "status":
-        status_callback(update, context)
-    elif data == "add":
-        add_start(update, context)
-    elif data == "list":
-        list_messages(update, context)
-    elif data == "hourly":
-        hourly_menu(update, context)
-    elif data == "toggle_hourly":
-        toggle_hourly(update, context)
-    elif data == "set_interval":
-        set_interval(update, context)
-    elif data == "set_default_text":
-        set_default_text(update, context)
-    elif data == "add_exception":
-        add_exception(update, context)
-    elif data == "list_exceptions":
-        list_exceptions(update, context)
+    handlers = {
+        "menu": menu_callback,
+        "status": status_callback,
+        "add": add_start,
+        "list": list_messages,
+        "hourly": hourly_menu,
+        "toggle_hourly": toggle_hourly,
+        "set_interval": set_interval,
+        "set_default_text": set_default_text,
+        "add_exception": add_exception,
+        "list_exceptions": list_exceptions,
+        "test": test_callback,
+        "clear": clear_callback,
+        "confirm_clear": confirm_clear,
+    }
+    
+    if data in handlers:
+        handlers[data](update, context)
     elif data.startswith("del_exc_"):
         delete_exception(update, context)
-    elif data == "test":
-        test_callback(update, context)
-    elif data == "clear":
-        clear_callback(update, context)
-    elif data == "confirm_clear":
-        confirm_clear(update, context)
     elif data.startswith("edit_"):
         edit_message(update, context)
     elif data.startswith("edit_text_"):

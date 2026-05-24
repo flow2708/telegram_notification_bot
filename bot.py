@@ -12,12 +12,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 # ============ КОНФИГУРАЦИЯ ЧЕРЕЗ os.getenv ============
-# Bothost: переменные задаются в панели управления
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 CHANNEL_ID = os.getenv('TELEGRAM_CHAT_ID')
 # =====================================================
 
-# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -27,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 if not TOKEN or not CHANNEL_ID:
     logger.error("Ошибка: переменные TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID не заданы!")
-    logger.error("На Bothost: настройки -> Переменные окружения")
     sys.exit(1)
 
 SETTINGS_FILE = 'bot_settings.json'
@@ -134,7 +131,7 @@ class BotManager:
 
 bot_manager = None
 
-# ============ ВСЕ ФУНКЦИИ (те же самые) ============
+# ============ ГЛАВНОЕ МЕНЮ ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📊 СТАТУС", callback_data="status")],
@@ -160,6 +157,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+# ============ СТАТУС ============
 async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -189,6 +187,7 @@ async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+# ============ ДОБАВЛЕНИЕ ОБЫЧНОГО СООБЩЕНИЯ ============
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -202,6 +201,7 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     context.user_data['step'] = 'waiting_time'
 
+# ============ ПОЧАСОВАЯ РАССЫЛКА ============
 async def hourly_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -315,6 +315,7 @@ async def delete_exception(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.8)
     await list_exceptions(update, context)
 
+# ============ СПИСОК ОБЫЧНЫХ СООБЩЕНИЙ ============
 async def list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -340,6 +341,7 @@ async def list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+# ============ РЕДАКТИРОВАНИЕ ============
 async def edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -405,9 +407,11 @@ async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.8)
     await list_callback(update, context)
 
+# ============ ТЕСТ ============
 async def test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await bot_manager.test_send(update)
 
+# ============ ОЧИСТКА ============
 async def clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -435,6 +439,7 @@ async def confirm_clear_callback(update: Update, context: ContextTypes.DEFAULT_T
     await asyncio.sleep(0.8)
     await menu_callback(update, context)
 
+# ============ МЕНЮ ============
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -455,6 +460,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+# ============ ОБРАБОТКА ТЕКСТА ============
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     step = context.user_data.get('step')
@@ -598,6 +604,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Формат ЧЧ:ММ")
         return
 
+# ============ ОСНОВНОЙ ОБРАБОТЧИК ============
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -653,12 +660,14 @@ async def run_bot():
     
     logger.info("🚀 БОТ ЗАПУЩЕН!")
     
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    
     try:
-        await asyncio.Event().wait()
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        
+        # Держим бота запущенным
+        while True:
+            await asyncio.sleep(1)
     except KeyboardInterrupt:
         logger.info("Остановка...")
         await application.updater.stop()

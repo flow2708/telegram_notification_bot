@@ -6,14 +6,18 @@ import sys
 import asyncio
 from datetime import datetime
 
-from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-load_dotenv()
+# ============ КОНФИГУРАЦИЯ ЧЕРЕЗ os.getenv ============
+# Bothost: переменные задаются в панели управления
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+CHANNEL_ID = os.getenv('TELEGRAM_CHAT_ID')
+# =====================================================
 
+# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -21,22 +25,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-CHANNEL_ID = os.getenv('TELEGRAM_CHAT_ID')
-
 if not TOKEN or not CHANNEL_ID:
-    logger.error("Ошибка: проверь TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID в .env")
+    logger.error("Ошибка: переменные TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID не заданы!")
+    logger.error("На Bothost: настройки -> Переменные окружения")
     sys.exit(1)
 
 SETTINGS_FILE = 'bot_settings.json'
 
 DEFAULT_SETTINGS = {
-    "messages": [],               # Обычные сообщения
-    "hourly_enabled": False,      # Включена ли почасовая рассылка
-    "hourly_start": 9,            # Начальный час
-    "hourly_end": 21,             # Конечный час
+    "messages": [],
+    "hourly_enabled": False,
+    "hourly_start": 9,
+    "hourly_end": 21,
     "hourly_default_text": "⏰ ЕЖЕЧАСНОЕ НАПОМИНАНИЕ!\n\n",
-    "hourly_exceptions": [],      # Особые часы [{"hour": 12, "text": "Обед!"}]
+    "hourly_exceptions": [],
     "is_configured": False
 }
 
@@ -66,7 +68,6 @@ class BotManager:
         self.scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
         jobs_added = 0
         
-        # 1. Обычные сообщения (конкретное время)
         for msg in self.settings.get("messages", []):
             try:
                 hour, minute = map(int, msg["time"].split(':'))
@@ -78,12 +79,11 @@ class BotManager:
                     id=f"msg_{msg['id']}",
                     replace_existing=True
                 )
-                logger.info(f"✅ Запланировано обычное: {msg['time']}")
+                logger.info(f"✅ Запланировано: {msg['time']}")
                 jobs_added += 1
             except Exception as e:
-                logger.error(f"Ошибка планирования {msg['time']}: {e}")
+                logger.error(f"Ошибка {msg['time']}: {e}")
         
-        # 2. Почасовые сообщения
         if self.settings.get("hourly_enabled", False):
             hourly_start = self.settings.get("hourly_start", 9)
             hourly_end = self.settings.get("hourly_end", 21)
@@ -102,42 +102,39 @@ class BotManager:
                     id=f"hourly_{hour}",
                     replace_existing=True
                 )
-                logger.info(f"✅ Запланировано почасовое: {hour}:00")
                 jobs_added += 1
         
         if jobs_added > 0:
             self.scheduler.start()
-            logger.info(f"Планировщик запущен. Всего задач: {jobs_added}")
+            logger.info(f"Планировщик запущен. Задач: {jobs_added}")
         else:
-            logger.info("Нет сообщений для отправки")
+            logger.info("Нет сообщений")
     
     async def send_message(self, text):
         try:
             await self.application.bot.send_message(chat_id=CHANNEL_ID, text=text)
-            logger.info(f"✅ Отправлено в {datetime.now().strftime('%H:%M')}: {text[:50]}")
+            logger.info(f"✅ Отправлено в {datetime.now().strftime('%H:%M')}")
         except Exception as e:
-            logger.error(f"❌ НЕ УДАЛОСЬ ОТПРАВИТЬ: {e}")
+            logger.error(f"❌ Ошибка: {e}")
     
     async def test_send(self, update: Update):
         try:
-            await self.application.bot.send_message(chat_id=CHANNEL_ID, text="🧪 ТЕСТОВОЕ СООБЩЕНИЕ! Бот работает!")
-            await update.callback_query.answer("✅ УСПЕШНО! Сообщение отправлено в канал!")
-            logger.info(f"✅ Тестовая отправка успешна")
+            await self.application.bot.send_message(chat_id=CHANNEL_ID, text="🧪 ТЕСТ! Бот работает!")
+            await update.callback_query.answer("✅ Отправлено в канал!")
             return True
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"❌ Тест не удался: {error_msg}")
             if "chat not found" in error_msg.lower():
-                await update.callback_query.answer("❌ ОШИБКА: Канал не найден! Проверь CHAT_ID")
+                await update.callback_query.answer("❌ Канал не найден! Проверь CHAT_ID")
             elif "forbidden" in error_msg.lower():
-                await update.callback_query.answer("❌ ОШИБКА: Нет прав! Добавь бота в канал как АДМИНА")
+                await update.callback_query.answer("❌ Нет прав! Добавь бота в канал как АДМИНА")
             else:
-                await update.callback_query.answer(f"❌ Ошибка: {error_msg[:40]}")
+                await update.callback_query.answer(f"❌ {error_msg[:30]}")
             return False
 
 bot_manager = None
 
-# ============ ГЛАВНОЕ МЕНЮ ============
+# ============ ВСЕ ФУНКЦИИ (те же самые) ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📊 СТАТУС", callback_data="status")],
@@ -163,7 +160,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-# ============ СТАТУС ============
 async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -193,7 +189,6 @@ async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-# ============ ДОБАВЛЕНИЕ ОБЫЧНОГО СООБЩЕНИЯ ============
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -207,7 +202,6 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     context.user_data['step'] = 'waiting_time'
 
-# ============ ПОЧАСОВАЯ РАССЫЛКА ============
 async def hourly_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -321,7 +315,6 @@ async def delete_exception(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.8)
     await list_exceptions(update, context)
 
-# ============ СПИСОК ОБЫЧНЫХ СООБЩЕНИЙ ============
 async def list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -347,7 +340,6 @@ async def list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-# ============ РЕДАКТИРОВАНИЕ ============
 async def edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -413,11 +405,9 @@ async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.8)
     await list_callback(update, context)
 
-# ============ ТЕСТ ============
 async def test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await bot_manager.test_send(update)
 
-# ============ ОЧИСТКА ============
 async def clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -445,7 +435,6 @@ async def confirm_clear_callback(update: Update, context: ContextTypes.DEFAULT_T
     await asyncio.sleep(0.8)
     await menu_callback(update, context)
 
-# ============ МЕНЮ ============
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -466,12 +455,10 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-# ============ ОБРАБОТКА ТЕКСТА ============
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     step = context.user_data.get('step')
     
-    # Обычное сообщение - время
     if step == 'waiting_time':
         try:
             hour, minute = map(int, text.split(':'))
@@ -486,7 +473,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Формат ЧЧ:ММ, например 14:30")
         return
     
-    # Обычное сообщение - текст
     if step == 'waiting_text':
         time_str = context.user_data.get('new_time')
         msgs = bot_manager.settings.get("messages", [])
@@ -507,7 +493,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Нажми кнопку:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
-    # Интервал почасовой
     if step == 'waiting_interval':
         try:
             parts = text.split()
@@ -530,7 +515,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Пример: 9 21")
         return
     
-    # Текст по умолчанию
     if step == 'waiting_default_text':
         bot_manager.settings["hourly_default_text"] = text
         save_settings(bot_manager.settings)
@@ -543,21 +527,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
-    # Исключение - час
     if step == 'waiting_exception_hour':
         try:
             hour = int(text)
             if 0 <= hour <= 23:
                 context.user_data['exception_hour'] = hour
                 context.user_data['step'] = 'waiting_exception_text'
-                await update.message.reply_text(f"✅ Час {hour}:00\n\nТеперь введи ТЕКСТ для этого часа:")
+                await update.message.reply_text(f"✅ Час {hour}:00\n\nТеперь введи ТЕКСТ:")
             else:
                 await update.message.reply_text("❌ Час 0-23")
         except:
             await update.message.reply_text("❌ Введи число")
         return
     
-    # Исключение - текст
     if step == 'waiting_exception_text':
         hour = context.user_data.get('exception_hour')
         exceptions = bot_manager.settings.get("hourly_exceptions", [])
@@ -574,7 +556,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
-    # Редактирование текста обычного
     if step == 'waiting_new_text':
         msg_id = context.user_data.get('edit_id')
         for msg in bot_manager.settings["messages"]:
@@ -591,7 +572,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Продолжить:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
-    # Редактирование времени обычного
     if step == 'waiting_new_time':
         try:
             hour, minute = map(int, text.split(':'))
@@ -618,7 +598,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Формат ЧЧ:ММ")
         return
 
-# ============ ОСНОВНОЙ ОБРАБОТЧИК ============
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -673,7 +652,6 @@ async def run_bot():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
     logger.info("🚀 БОТ ЗАПУЩЕН!")
-    logger.info(f"📢 Канал: {CHANNEL_ID}")
     
     await application.initialize()
     await application.start()

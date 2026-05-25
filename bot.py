@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     "hourly_enabled": False,
     "hourly_start": 9,
     "hourly_end": 21,
+    "hourly_24h": False,  # НОВЫЙ ФЛАГ ДЛЯ 24 ЧАСОВ
     "hourly_default_text": "⏰ ЕЖЕЧАСНОЕ НАПОМИНАНИЕ!",
     "hourly_exceptions": []
 }
@@ -32,7 +33,11 @@ DEFAULT_SETTINGS = {
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as f:
-            return json.load(f)
+            saved = json.load(f)
+            # Добавляем новый флаг в старые настройки
+            if "hourly_24h" not in saved:
+                saved["hourly_24h"] = False
+            return saved
     return DEFAULT_SETTINGS.copy()
 
 def save_settings(s):
@@ -65,11 +70,20 @@ def setup_scheduler():
             scheduler.add_job(send_message, CronTrigger(hour=h, minute=m), args=[msg['text']])
             jobs += 1
         if settings.get('hourly_enabled'):
-            for h in range(settings['hourly_start'], settings['hourly_end'] + 1):
-                exc = next((e for e in settings.get('hourly_exceptions', []) if e['hour'] == h), None)
-                text = exc['text'] if exc else settings['hourly_default_text']
-                scheduler.add_job(send_message, CronTrigger(hour=h, minute=0), args=[text])
-                jobs += 1
+            # Если включен режим 24 часа
+            if settings.get('hourly_24h', False):
+                for h in range(0, 24):  # 0:00 до 23:00
+                    exc = next((e for e in settings.get('hourly_exceptions', []) if e['hour'] == h), None)
+                    text = exc['text'] if exc else settings['hourly_default_text']
+                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0), args=[text])
+                    jobs += 1
+            else:
+                # Обычный интервал
+                for h in range(settings['hourly_start'], settings['hourly_end'] + 1):
+                    exc = next((e for e in settings.get('hourly_exceptions', []) if e['hour'] == h), None)
+                    text = exc['text'] if exc else settings['hourly_default_text']
+                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0), args=[text])
+                    jobs += 1
         if jobs > 0:
             scheduler.start()
             logger.info(f"✅ Планировщик: {jobs} задач")
@@ -108,7 +122,10 @@ def status_cb(update, context):
         text += "\n"
     text += f"Почасовой: {'ВКЛ' if settings.get('hourly_enabled') else 'ВЫКЛ'}"
     if settings.get('hourly_enabled'):
-        text += f"\nИнтервал: {settings['hourly_start']}:00 - {settings['hourly_end']}:00"
+        if settings.get('hourly_24h', False):
+            text += f"\nИнтервал: 24 ЧАСА (каждый час)"
+        else:
+            text += f"\nИнтервал: {settings['hourly_start']}:00 - {settings['hourly_end']}:00"
     try:
         q.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]]))
     except: pass
@@ -150,17 +167,30 @@ def hourly_cb(update, context):
     try: q.answer()
     except: pass
     enabled = settings.get('hourly_enabled', False)
+    is_24h = settings.get('hourly_24h', False)
+    
     kb = [
         [InlineKeyboardButton(f"{'✅' if enabled else '❌'} ВКЛ/ВЫКЛ", callback_data="toggle_h")],
+    ]
+    
+    # Добавляем кнопку 24 ЧАСА только если включена почасовая рассылка
+    if enabled:
+        kb.append([InlineKeyboardButton(f"{'✅' if is_24h else '❌'} 24 ЧАСА", callback_data="toggle_24h")])
+    
+    kb.extend([
         [InlineKeyboardButton("⏰ ИНТЕРВАЛ", callback_data="interval")],
         [InlineKeyboardButton("📝 ТЕКСТ", callback_data="def_text")],
         [InlineKeyboardButton("🌟 ОСОБЫЙ ЧАС", callback_data="add_exc")],
         [InlineKeyboardButton("📋 ИСКЛЮЧЕНИЯ", callback_data="list_exc")],
         [InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]
-    ]
+    ])
+    
     text = f"⏰ ПОЧАСОВАЯ\nСтатус: {'ВКЛ' if enabled else 'ВЫКЛ'}"
     if enabled:
-        text += f"\nИнтервал: {settings['hourly_start']}:00 - {settings['hourly_end']}:00"
+        if is_24h:
+            text += f"\nРежим: 24 ЧАСА (каждый час)"
+        else:
+            text += f"\nИнтервал: {settings['hourly_start']}:00 - {settings['hourly_end']}:00"
     try:
         q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
     except: pass
@@ -170,10 +200,28 @@ def toggle_h_cb(update, context):
     try: q.answer()
     except: pass
     settings['hourly_enabled'] = not settings.get('hourly_enabled', False)
+    # Если выключаем - сбрасываем флаг 24h
+    if not settings['hourly_enabled']:
+        settings['hourly_24h'] = False
     save_settings(settings)
     setup_scheduler()
     try:
         q.edit_message_text(f"✅ Почасовая {'ВКЛЮЧЕНА' if settings['hourly_enabled'] else 'ВЫКЛЮЧЕНА'}")
+    except: pass
+    import time
+    time.sleep(0.8)
+    hourly_cb(update, context)
+
+def toggle_24h_cb(update, context):
+    """НОВАЯ ФУНКЦИЯ: Включение/выключение режима 24 часа"""
+    q = update.callback_query
+    try: q.answer()
+    except: pass
+    settings['hourly_24h'] = not settings.get('hourly_24h', False)
+    save_settings(settings)
+    setup_scheduler()
+    try:
+        q.edit_message_text(f"✅ Режим 24 ЧАСА {'ВКЛЮЧЕН' if settings['hourly_24h'] else 'ВЫКЛЮЧЕН'}")
     except: pass
     import time
     time.sleep(0.8)
@@ -185,7 +233,7 @@ def interval_cb(update, context):
     except: pass
     try:
         q.edit_message_text(
-            "Введи начальный и конечный час\nПример: 9 21",
+            "Введи начальный и конечный час\nПример: 9 21\n\n(Режим 24 часа будет отключён)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly")]])
         )
     except: pass
@@ -400,6 +448,7 @@ def handle_text(update, context):
             if 0 <= start <= 23 and 0 <= end <= 23 and start <= end:
                 settings['hourly_start'] = start
                 settings['hourly_end'] = end
+                settings['hourly_24h'] = False  # При ручном интервале отключаем 24 часа
                 save_settings(settings)
                 setup_scheduler()
                 update.message.reply_text(f"✅ Интервал: {start}:00 - {end}:00\n\n/start - вернуться в меню")
@@ -490,6 +539,8 @@ def callback_handler(update, context):
         hourly_cb(update, context)
     elif data == "toggle_h":
         toggle_h_cb(update, context)
+    elif data == "toggle_24h":
+        toggle_24h_cb(update, context)
     elif data == "interval":
         interval_cb(update, context)
     elif data == "def_text":

@@ -1,9 +1,0 @@
-{
-  "messages": [],
-  "hourly_enabled": true,
-  "hourly_start": 9,
-  "hourly_end": 21,
-  "hourly_default_text": "Тестовое ежечасное сообщение",
-  "hourly_exceptions": [],
-  "is_configured": false
-}

@@ -62,26 +62,41 @@ def setup_scheduler():
                 scheduler.shutdown(wait=False)
             except:
                 pass
-        # ИСПРАВЛЕНО: Используем UTC (время сервера в Нидерландах)
         scheduler = BackgroundScheduler(timezone="UTC")
         jobs = 0
+        
+        # 1. Обычные сообщения (конкретное время)
         for msg in settings.get("messages", []):
             h, m = map(int, msg['time'].split(':'))
             scheduler.add_job(send_message, CronTrigger(hour=h, minute=m, timezone="UTC"), args=[msg['text']])
             jobs += 1
+        
+        # 2. Особые часы (работают ВСЕГДА, если они есть)
+        exceptions = settings.get('hourly_exceptions', [])
+        for exc in exceptions:
+            h = exc['hour']
+            text = exc['text']
+            # Добавляем задачу на каждый особый час
+            scheduler.add_job(send_message, CronTrigger(hour=h, minute=0, timezone="UTC"), args=[text])
+            jobs += 1
+            logger.info(f"✅ Особый час: {h}:00 - {text[:30]}")
+        
+        # 3. Почасовая рассылка (если включена)
         if settings.get('hourly_enabled'):
             if settings.get('hourly_24h', False):
-                for h in range(0, 24):
-                    exc = next((e for e in settings.get('hourly_exceptions', []) if e['hour'] == h), None)
-                    text = exc['text'] if exc else settings['hourly_default_text']
-                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0, timezone="UTC"), args=[text])
-                    jobs += 1
+                hours_range = range(0, 24)
             else:
-                for h in range(settings['hourly_start'], settings['hourly_end'] + 1):
-                    exc = next((e for e in settings.get('hourly_exceptions', []) if e['hour'] == h), None)
-                    text = exc['text'] if exc else settings['hourly_default_text']
-                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0, timezone="UTC"), args=[text])
-                    jobs += 1
+                hours_range = range(settings['hourly_start'], settings['hourly_end'] + 1)
+            
+            for h in hours_range:
+                # Пропускаем часы, для которых есть особое сообщение
+                is_exception = any(e['hour'] == h for e in exceptions)
+                if is_exception:
+                    continue  # Уже есть задача на этот час
+                text = settings['hourly_default_text']
+                scheduler.add_job(send_message, CronTrigger(hour=h, minute=0, timezone="UTC"), args=[text])
+                jobs += 1
+        
         if jobs > 0:
             scheduler.start()
             logger.info(f"✅ Планировщик: {jobs} задач (UTC)")

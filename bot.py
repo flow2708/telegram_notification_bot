@@ -25,7 +25,7 @@ DEFAULT_SETTINGS = {
     "hourly_enabled": False,
     "hourly_start": 9,
     "hourly_end": 21,
-    "hourly_24h": False,  # НОВЫЙ ФЛАГ ДЛЯ 24 ЧАСОВ
+    "hourly_24h": False,
     "hourly_default_text": "⏰ ЕЖЕЧАСНОЕ НАПОМИНАНИЕ!",
     "hourly_exceptions": []
 }
@@ -34,7 +34,6 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as f:
             saved = json.load(f)
-            # Добавляем новый флаг в старые настройки
             if "hourly_24h" not in saved:
                 saved["hourly_24h"] = False
             return saved
@@ -63,30 +62,29 @@ def setup_scheduler():
                 scheduler.shutdown(wait=False)
             except:
                 pass
-        scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+        # ИСПРАВЛЕНО: Используем UTC (время сервера в Нидерландах)
+        scheduler = BackgroundScheduler(timezone="UTC")
         jobs = 0
         for msg in settings.get("messages", []):
             h, m = map(int, msg['time'].split(':'))
-            scheduler.add_job(send_message, CronTrigger(hour=h, minute=m), args=[msg['text']])
+            scheduler.add_job(send_message, CronTrigger(hour=h, minute=m, timezone="UTC"), args=[msg['text']])
             jobs += 1
         if settings.get('hourly_enabled'):
-            # Если включен режим 24 часа
             if settings.get('hourly_24h', False):
-                for h in range(0, 24):  # 0:00 до 23:00
+                for h in range(0, 24):
                     exc = next((e for e in settings.get('hourly_exceptions', []) if e['hour'] == h), None)
                     text = exc['text'] if exc else settings['hourly_default_text']
-                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0), args=[text])
+                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0, timezone="UTC"), args=[text])
                     jobs += 1
             else:
-                # Обычный интервал
                 for h in range(settings['hourly_start'], settings['hourly_end'] + 1):
                     exc = next((e for e in settings.get('hourly_exceptions', []) if e['hour'] == h), None)
                     text = exc['text'] if exc else settings['hourly_default_text']
-                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0), args=[text])
+                    scheduler.add_job(send_message, CronTrigger(hour=h, minute=0, timezone="UTC"), args=[text])
                     jobs += 1
         if jobs > 0:
             scheduler.start()
-            logger.info(f"✅ Планировщик: {jobs} задач")
+            logger.info(f"✅ Планировщик: {jobs} задач (UTC)")
     except Exception as e:
         logger.error(f"Ошибка: {e}")
 
@@ -126,6 +124,7 @@ def status_cb(update, context):
             text += f"\nИнтервал: 24 ЧАСА (каждый час)"
         else:
             text += f"\nИнтервал: {settings['hourly_start']}:00 - {settings['hourly_end']}:00"
+    text += f"\n\n🕐 Часовой пояс: UTC (время сервера)"
     try:
         q.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]]))
     except: pass
@@ -136,7 +135,7 @@ def add_cb(update, context):
     except: pass
     try:
         q.edit_message_text(
-            "✏️ Введи ВРЕМЯ в формате ЧЧ:ММ\nПример: 14:30",
+            "✏️ Введи ВРЕМЯ в формате ЧЧ:ММ\nПример: 14:30\n\n🕐 Часовой пояс: UTC",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]])
         )
     except: pass
@@ -173,7 +172,6 @@ def hourly_cb(update, context):
         [InlineKeyboardButton(f"{'✅' if enabled else '❌'} ВКЛ/ВЫКЛ", callback_data="toggle_h")],
     ]
     
-    # Добавляем кнопку 24 ЧАСА только если включена почасовая рассылка
     if enabled:
         kb.append([InlineKeyboardButton(f"{'✅' if is_24h else '❌'} 24 ЧАСА", callback_data="toggle_24h")])
     
@@ -185,7 +183,7 @@ def hourly_cb(update, context):
         [InlineKeyboardButton("🔙 НАЗАД", callback_data="menu")]
     ])
     
-    text = f"⏰ ПОЧАСОВАЯ\nСтатус: {'ВКЛ' if enabled else 'ВЫКЛ'}"
+    text = f"⏰ ПОЧАСОВАЯ\nСтатус: {'ВКЛ' if enabled else 'ВЫКЛ'}\n🕐 Часовой пояс: UTC"
     if enabled:
         if is_24h:
             text += f"\nРежим: 24 ЧАСА (каждый час)"
@@ -200,7 +198,6 @@ def toggle_h_cb(update, context):
     try: q.answer()
     except: pass
     settings['hourly_enabled'] = not settings.get('hourly_enabled', False)
-    # Если выключаем - сбрасываем флаг 24h
     if not settings['hourly_enabled']:
         settings['hourly_24h'] = False
     save_settings(settings)
@@ -213,7 +210,6 @@ def toggle_h_cb(update, context):
     hourly_cb(update, context)
 
 def toggle_24h_cb(update, context):
-    """НОВАЯ ФУНКЦИЯ: Включение/выключение режима 24 часа"""
     q = update.callback_query
     try: q.answer()
     except: pass
@@ -233,7 +229,7 @@ def interval_cb(update, context):
     except: pass
     try:
         q.edit_message_text(
-            "Введи начальный и конечный час\nПример: 9 21\n\n(Режим 24 часа будет отключён)",
+            "Введи начальный и конечный час (UTC)\nПример: 9 21\n\n(Режим 24 часа будет отключён)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly")]])
         )
     except: pass
@@ -257,7 +253,7 @@ def add_exc_cb(update, context):
     except: pass
     try:
         q.edit_message_text(
-            "Введи ЧАС (0-23)\nПример: 12",
+            "Введи ЧАС (0-23) в UTC\nПример: 12",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly")]])
         )
     except: pass
@@ -273,7 +269,7 @@ def list_exc_cb(update, context):
             q.edit_message_text("📭 НЕТ ОСОБЫХ ЧАСОВ", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="hourly")]]))
         except: pass
         return
-    text = "🌟 ОСОБЫЕ ЧАСЫ\n\n"
+    text = "🌟 ОСОБЫЕ ЧАСЫ (UTC)\n\n"
     kb = []
     for e in excs:
         text += f"• {e['hour']}:00 - {e['text'][:40]}\n"
@@ -347,7 +343,7 @@ def edit_time_cb(update, context):
     context.user_data['edit_id'] = msg_id
     context.user_data['step'] = 'wait_edit_time'
     try:
-        q.edit_message_text("🕐 Введи НОВОЕ ВРЕМЯ (ЧЧ:ММ)", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="list")]]))
+        q.edit_message_text("🕐 Введи НОВОЕ ВРЕМЯ (ЧЧ:ММ)\nЧасовой пояс: UTC", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 НАЗАД", callback_data="list")]]))
     except: pass
 
 def del_msg_cb(update, context):
@@ -423,7 +419,7 @@ def handle_text(update, context):
             if 0 <= h <= 23 and 0 <= m <= 59:
                 context.user_data['new_time'] = f"{h:02d}:{m:02d}"
                 context.user_data['step'] = 'wait_text'
-                update.message.reply_text(f"✅ Время {h:02d}:{m:02d}\n\nТеперь введи ТЕКСТ:")
+                update.message.reply_text(f"✅ Время {h:02d}:{m:02d} UTC\n\nТеперь введи ТЕКСТ:")
             else:
                 update.message.reply_text("❌ Час 0-23, минуты 0-59")
         except:
@@ -437,7 +433,7 @@ def handle_text(update, context):
         settings['messages'].append({'id': new_id, 'time': time_str, 'text': text})
         save_settings(settings)
         setup_scheduler()
-        update.message.reply_text(f"✅ ДОБАВЛЕНО!\n\n🕐 {time_str}\n📝 {text[:100]}\n\n/start - вернуться в меню")
+        update.message.reply_text(f"✅ ДОБАВЛЕНО!\n\n🕐 {time_str} UTC\n📝 {text[:100]}\n\n/start - вернуться в меню")
         context.user_data['step'] = None
         return
     
@@ -448,10 +444,10 @@ def handle_text(update, context):
             if 0 <= start <= 23 and 0 <= end <= 23 and start <= end:
                 settings['hourly_start'] = start
                 settings['hourly_end'] = end
-                settings['hourly_24h'] = False  # При ручном интервале отключаем 24 часа
+                settings['hourly_24h'] = False
                 save_settings(settings)
                 setup_scheduler()
-                update.message.reply_text(f"✅ Интервал: {start}:00 - {end}:00\n\n/start - вернуться в меню")
+                update.message.reply_text(f"✅ Интервал: {start}:00 - {end}:00 UTC\n\n/start - вернуться в меню")
                 context.user_data['step'] = None
             else:
                 update.message.reply_text("❌ Ошибка")
@@ -473,7 +469,7 @@ def handle_text(update, context):
             if 0 <= hour <= 23:
                 context.user_data['exc_hour'] = hour
                 context.user_data['step'] = 'wait_exc_text'
-                update.message.reply_text(f"✅ Час {hour}:00\n\nТеперь введи ТЕКСТ:")
+                update.message.reply_text(f"✅ Час {hour}:00 UTC\n\nТеперь введи ТЕКСТ:")
             else:
                 update.message.reply_text("❌ Час 0-23")
         except:
@@ -488,7 +484,7 @@ def handle_text(update, context):
         settings['hourly_exceptions'] = excs
         save_settings(settings)
         setup_scheduler()
-        update.message.reply_text(f"✅ Особый час {hour}:00 ДОБАВЛЕН\n\n/start - вернуться в меню")
+        update.message.reply_text(f"✅ Особый час {hour}:00 UTC ДОБАВЛЕН\n\n/start - вернуться в меню")
         context.user_data['step'] = None
         return
     
@@ -516,7 +512,7 @@ def handle_text(update, context):
                         break
                 save_settings(settings)
                 setup_scheduler()
-                update.message.reply_text(f"✅ ВРЕМЯ ИЗМЕНЕНО НА {new_time}\n\n/list - посмотреть список")
+                update.message.reply_text(f"✅ ВРЕМЯ ИЗМЕНЕНО НА {new_time} UTC\n\n/list - посмотреть список")
                 context.user_data['step'] = None
             else:
                 update.message.reply_text("❌ Час 0-23, минуты 0-59")
@@ -575,7 +571,7 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CallbackQueryHandler(callback_handler))
     dp.add_handler(MessageHandler(Filters.text, handle_text))
-    logger.info("🚀 БОТ ЗАПУЩЕН!")
+    logger.info("🚀 БОТ ЗАПУЩЕН! Часовой пояс: UTC")
     updater.start_polling()
     updater.idle()
 
